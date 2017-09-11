@@ -1,2 +1,7 @@
 [[service]]
+# example-services
 addr = "localhost:10000"
+
+[[service]]
+# spell check
+addr = "localhost:10002"
