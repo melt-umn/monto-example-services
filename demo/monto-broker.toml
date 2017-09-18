@@ -1,7 +1,10 @@
+[net]
+addr = "[::]:28888"
+
 [[service]]
 # example-services
 addr = "localhost:10000"
 
-[[service]]
+# [[service]]
 # spell check
-addr = "localhost:10002"
+# addr = "localhost:10002"

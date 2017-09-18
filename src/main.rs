@@ -1,3 +1,4 @@
+extern crate aho_corasick;
 extern crate either;
 #[macro_use]
 extern crate log;
@@ -9,17 +10,21 @@ extern crate tokio_core;
 extern crate unicode_segmentation;
 extern crate void;
 
-use std::fmt::Display;
+mod find_todos;
+mod helpers;
 
 use either::{Left, Right};
-use monto::common::messages::{Language, Product, ProductIdentifier, ProductName};
+use monto::common::messages::Language;
+use monto::common::products::{HighlightingColor, HighlightingToken};
 use monto::service::Service;
 use monto::service::config::Config;
-use monto::service::messages::{ServiceError, ServiceNotice};
-use serde_json::Value;
+use serde_json::{to_value, Value};
 use tokio_core::reactor::Core;
 use unicode_segmentation::UnicodeSegmentation;
 use void::unreachable;
+
+use find_todos::find_todos;
+use helpers::simple_fn;
 
 fn main() {
     pretty_logger::init_to_defaults().unwrap();
@@ -30,6 +35,7 @@ fn main() {
     s.add_provider(CharCount);
     s.add_provider(LineCount);
     s.add_provider(Reverse);
+    s.add_provider(TodoFinder);
 
     let err = match c.run(s.serve_forever()) {
         Ok(void) => unreachable(void),
@@ -80,31 +86,20 @@ simple_service_provider! {
     }
 }
 
-fn simple_fn<E: Display, F: FnOnce(String) -> Result<Value, E>>(path: &str, mut products: Vec<Product>, lang: Language, f: F) -> (Result<Value, Vec<ServiceError>>, Vec<ServiceNotice>) {
-    let idx = products.iter().position(|p| {
-        p.name == ProductName::Source && p.language == lang && p.path == path
-    });
-
-    let r = if let Some(idx) = idx {
-        match products.swap_remove(idx).value {
-            Value::String(src) => {
-                f(src).map_err(|e| ServiceError::Other(e.to_string()))
-            }
-            _ => Err(ServiceError::Other("bad source product".to_string())),
-        }
-    } else {
-        Err(ServiceError::UnmetDependency(ProductIdentifier {
-            name: ProductName::Source,
-            language: lang,
-            path: path.to_string(),
-        }))
-    };
-    let notices = products.into_iter()
-        .map(|p| p.into())
-        .map(ServiceNotice::UnusedDependency)
-        .collect();
-    (match r {
-        Ok(product) => Ok(product),
-        Err(err) => Err(vec![err]),
-    }, notices)
+simple_service_provider! {
+    name = TodoFinder;
+    product = "highlighting";
+    language = "text";
+    (p, ps) => {
+        simple_fn(p, ps, Language::Text, |src| {
+            let hltoks = find_todos(&src).into_iter().map(|(s, e)| {
+                HighlightingToken {
+                    start_byte: s,
+                    end_byte: e,
+                    color: HighlightingColor::Palette(1),
+                }
+            }).collect::<Vec<_>>();
+            to_value(hltoks)
+        })
+    }
 }
